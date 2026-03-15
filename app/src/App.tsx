@@ -88,7 +88,7 @@ function LessonApp() {
   const [blocks, setBlocks] = useState<BlockState[]>(makeInitialBlocks)
 
   const svgRef = useRef<SVGSVGElement>(null)
-  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number; startX: number; startY: number } | null>(null)
 
   const svgPoint = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current
@@ -104,7 +104,7 @@ function LessonApp() {
   const onPointerDown = useCallback((e: ReactPointerEvent<SVGRectElement>, block: BlockState) => {
     e.currentTarget.setPointerCapture(e.pointerId)
     const pt = svgPoint(e.clientX, e.clientY)
-    dragRef.current = { id: block.id, offsetX: pt.x - block.x, offsetY: pt.y - block.y }
+    dragRef.current = { id: block.id, offsetX: pt.x - block.x, offsetY: pt.y - block.y, startX: pt.x, startY: pt.y }
   }, [svgPoint])
 
   const onPointerMove = useCallback((e: ReactPointerEvent<SVGRectElement>) => {
@@ -116,10 +116,71 @@ function LessonApp() {
     ))
   }, [svgPoint])
 
-  const onPointerUp = useCallback(() => {
+  const TAP_THRESHOLD = 5
+
+  const splitBlockById = useCallback((blockId: string) => {
+    // Use a ref to capture the new block IDs for the animation step
+    let newBlockIds: string[] = []
+    let origX = 0
+
+    setBlocks(prev => {
+      const block = prev.find(b => b.id === blockId)
+      if (!block) return prev
+
+      const frac: Fraction = { n: block.numerator, d: block.denominator as Denominator }
+      const options = validSplitOptions(frac)
+      if (options.length !== 1) return prev
+
+      const parts = options[0]
+      const pieces = splitFraction(frac, parts)
+      if (!pieces) return prev
+
+      origX = block.x
+      const newBlocks = pieces.map((p) => makeBlock(p.n, p.d, block.x, block.y))
+      newBlockIds = newBlocks.map(b => b.id)
+
+      return [
+        ...prev.filter(b => b.id !== block.id),
+        ...newBlocks.map(b => ({ ...b, animate: false })),
+      ]
+    })
+
+    // After a frame, spread them apart with animation
+    requestAnimationFrame(() => {
+      if (newBlockIds.length === 0) return
+      const ids = new Set(newBlockIds)
+
+      setBlocks(prev => {
+        const spacing = 8
+        let currentX = origX
+        return prev.map(b => {
+          if (!ids.has(b.id)) return b
+          const updated = { ...b, x: currentX, animate: true }
+          currentX += b.width + spacing
+          return updated
+        })
+      })
+
+      setTimeout(() => {
+        setBlocks(prev => prev.map(b => b.animate ? { ...b, animate: false } : b))
+      }, 200)
+    })
+  }, [])
+
+  const onPointerUp = useCallback((e: ReactPointerEvent<SVGRectElement>) => {
     if (!dragRef.current) return
     const draggedId = dragRef.current.id
+    const { startX, startY } = dragRef.current
+    const pt = svgPoint(e.clientX, e.clientY)
+    const dx = pt.x - startX
+    const dy = pt.y - startY
+    const wasTap = Math.abs(dx) < TAP_THRESHOLD && Math.abs(dy) < TAP_THRESHOLD
     dragRef.current = null
+
+    if (wasTap) {
+      splitBlockById(draggedId)
+      return
+    }
 
     // Check for combine: does the dropped block overlap a same-denominator block?
     setBlocks(prev => {
@@ -160,52 +221,7 @@ function LessonApp() {
         return [...prev.filter(bl => !bl.animate), combined]
       })
     }, 200)
-  }, [])
-
-  const onDoubleClick = useCallback((block: BlockState) => {
-    const frac: Fraction = { n: block.numerator, d: block.denominator as Denominator }
-    const options = validSplitOptions(frac)
-    if (options.length === 0) return
-
-    // Split into the smallest valid number of parts
-    const parts = options[0]
-    const pieces = splitFraction(frac, parts)
-    if (!pieces) return
-
-    // Create new blocks at the same position as the original (stacked)
-    const newBlocks = pieces.map((p) =>
-      makeBlock(p.n, p.d, block.x, block.y)
-    )
-
-    // Replace original with new blocks (initially stacked, with animate flag)
-    setBlocks(prev => [
-      ...prev.filter(b => b.id !== block.id),
-      ...newBlocks.map(b => ({ ...b, animate: false })),
-    ])
-
-    // After a frame, spread them apart with animation
-    requestAnimationFrame(() => {
-      setBlocks(prev => {
-        const ids = new Set(newBlocks.map(b => b.id))
-        const spreading = prev.filter(b => ids.has(b.id))
-        if (spreading.length === 0) return prev
-
-        const spacing = 8
-        let currentX = block.x
-        return prev.map(b => {
-          if (!ids.has(b.id)) return b
-          const updated = { ...b, x: currentX, animate: true }
-          currentX += b.width + spacing
-          return updated
-        })
-      })
-
-      // Clear animate flag after transition completes
-      setTimeout(() => {
-        setBlocks(prev => prev.map(b => b.animate ? { ...b, animate: false } : b))
-      }, 200)
-    })
-  }, [])
+  }, [svgPoint, splitBlockById])
 
   const hasBlocksInZone = blocks.some(b => isInZone(b.x, b.y, b.width, b.height))
 
@@ -318,7 +334,6 @@ function LessonApp() {
               key={block.id}
               transform={`translate(${block.x}, ${block.y})`}
               className={block.animate ? 'block-animate' : undefined}
-              onDoubleClick={() => onDoubleClick(block)}
             >
               <rect
                 x={0}
