@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, type PointerEvent as ReactPointerEvent }
 import { Button } from '@/components/ui/button'
 import { LessonProvider, useLesson } from '@/engine/lessonContext'
 import { canCombine, split as splitFraction, validSplitOptions, type Fraction, type Denominator } from '@/model/fraction'
+import { sumBlocksInZone as sumBlocksInZoneModel } from '@/model/workspace'
 
 interface BlockState {
   id: string
@@ -52,15 +53,10 @@ function isInZone(bx: number, by: number, bw: number, bh: number): boolean {
   return cx > ZONE_X && cx < ZONE_X + ZONE_W && cy > ZONE_Y && cy < ZONE_Y + ZONE_H
 }
 
+const ZONE_RECT = { x: ZONE_X, y: ZONE_Y, width: ZONE_W, height: ZONE_H }
+
 function sumBlocksInZone(blocks: BlockState[]): { n: number; d: number } {
-  let sum = 0
-  for (const b of blocks) {
-    if (isInZone(b.x, b.y, b.width, b.height)) {
-      sum += b.numerator / b.denominator
-    }
-  }
-  const n = Math.round(sum * 4)
-  return { n, d: 4 }
+  return sumBlocksInZoneModel(blocks, ZONE_RECT)
 }
 
 function makeBlock(numerator: number, denominator: number, x: number, y: number): BlockState {

@@ -13,7 +13,7 @@ export const GUIDED_STEPS: GuidedStep[] = [
     targetNumerator: 2,
     targetDenominator: 4,
     hints: [
-      'Think about how many quarters fit inside one half. Try dragging quarter blocks into the zone.',
+      'Not quite, try dragging two 1/4 blocks into the zone.',
       'You need exactly two 1/4 blocks. Each quarter is 1/4, and 1/4 + 1/4 = 2/4 = 1/2.',
     ],
     successMessage: "That's right! Two quarters make one half: 1/4 + 1/4 = 2/4 = 1/2. Great job!",
