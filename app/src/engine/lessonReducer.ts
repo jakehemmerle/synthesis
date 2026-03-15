@@ -1,4 +1,4 @@
-import type { LessonState, LessonAction } from './types'
+import type { LessonState, LessonAction, GuidedStep } from './types'
 import { GREETING, EXPLORATION_PROMPT, GUIDED_STEPS, ASSESSMENT_INTRO, ASSESSMENT_STEPS, CELEBRATION } from './lessonScript'
 
 export const initialState: LessonState = {
@@ -16,19 +16,14 @@ function isAnswerCorrect(
   targetD: number,
 ): boolean {
   if (answerD === 0 || targetD === 0) return false
-  return Math.abs(answerN / answerD - targetN / targetD) < 0.001
+  return answerN * targetD === targetN * answerD
 }
 
 export function lessonReducer(state: LessonState, action: LessonAction): LessonState {
   switch (action.type) {
     case 'START_LESSON':
       return {
-        ...state,
-        phase: 'intro',
-        messages: [...state.messages, { role: 'tutor', text: GREETING }],
-        steps: GUIDED_STEPS,
-        currentStepIndex: 0,
-        attempts: 0,
+        ...initialState,
       }
 
     case 'BEGIN_EXPLORATION':
@@ -96,7 +91,7 @@ export function lessonReducer(state: LessonState, action: LessonAction): LessonS
   }
 }
 
-function handleCorrectAnswer(state: LessonState, step: LessonState['steps'][0]): LessonState {
+function handleCorrectAnswer(state: LessonState, step: GuidedStep): LessonState {
   const isLastStep = state.currentStepIndex >= state.steps.length - 1
   const newMessages = [
     ...state.messages,
@@ -138,7 +133,7 @@ function handleCorrectAnswer(state: LessonState, step: LessonState['steps'][0]):
   }
 }
 
-function handleWrongAnswer(state: LessonState, step: LessonState['steps'][0]): LessonState {
+function handleWrongAnswer(state: LessonState, step: GuidedStep): LessonState {
   // On 3rd wrong attempt (attempts >= 2), show walkthrough if available
   if (state.attempts >= 2 && step.walkthrough) {
     return {

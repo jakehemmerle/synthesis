@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, type ReactNode } from 'react'
+import { createContext, useContext, useReducer, useMemo, type ReactNode } from 'react'
 import type { LessonState, LessonAction } from './types'
 import { lessonReducer, initialState } from './lessonReducer'
 
@@ -11,9 +11,10 @@ const LessonContext = createContext<LessonContextValue | null>(null)
 
 export function LessonProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(lessonReducer, initialState)
+  const value = useMemo(() => ({ state, dispatch }), [state, dispatch])
 
   return (
-    <LessonContext.Provider value={{ state, dispatch }}>
+    <LessonContext.Provider value={value}>
       {children}
     </LessonContext.Provider>
   )
