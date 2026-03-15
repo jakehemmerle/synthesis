@@ -1,10 +1,6 @@
 import { useRef, useState, useCallback, type PointerEvent as ReactPointerEvent } from 'react'
 import { Button } from '@/components/ui/button'
-
-interface ChatMessage {
-  role: 'tutor' | 'student'
-  text: string
-}
+import { LessonProvider, useLesson } from '@/engine/lessonContext'
 
 interface BlockState {
   id: string
@@ -37,7 +33,6 @@ function sumBlocksInZone(blocks: BlockState[]): { n: number; d: number } {
       sum += b.numerator / b.denominator
     }
   }
-  // Return as fraction with denominator 4 for simplicity
   const n = Math.round(sum * 4)
   return { n, d: 4 }
 }
@@ -51,12 +46,9 @@ function makeInitialBlocks(): BlockState[] {
   ]
 }
 
-export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'tutor', text: 'Can you make 1/2 using quarter blocks?' },
-  ])
+function LessonApp() {
+  const { state, dispatch } = useLesson()
   const [blocks, setBlocks] = useState<BlockState[]>(makeInitialBlocks)
-  const [checked, setChecked] = useState(false)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -95,35 +87,17 @@ export default function App() {
 
   const handleCheck = () => {
     const { n, d } = sumBlocksInZone(blocks)
-    const isCorrect = n === 2 && d === 4 // 2/4 == 1/2
-    // Only count quarter blocks in zone
-    const quartersInZone = blocks.filter(
-      b => b.denominator === 4 && isInZone(b.x, b.y, b.width, b.height)
-    ).length
-    const halvesInZone = blocks.filter(
-      b => b.denominator === 2 && isInZone(b.x, b.y, b.width, b.height)
-    ).length
-
-    let response: string
-    if (isCorrect && quartersInZone === 2 && halvesInZone === 0) {
-      response = 'That\'s right! Two quarters make one half. 1/4 + 1/4 = 2/4 = 1/2'
-    } else if (isCorrect) {
-      response = 'That equals 1/2, but try using only quarter blocks!'
-    } else if (n / d > 0.5) {
-      response = `That\'s too much! You have ${n}/${d} in the zone. Try removing a block.`
-    } else if (n / d > 0 && n / d < 0.5) {
-      response = `Almost! You have ${n}/${d} so far. You need more to make 1/2.`
-    } else {
-      response = 'Drag some quarter blocks into the zone first!'
-    }
-
-    setMessages(prev => [
-      ...prev,
-      { role: 'student', text: `[Checked: ${n}/${d} in zone]` },
-      { role: 'tutor', text: response },
-    ])
-    setChecked(true)
+    dispatch({ type: 'CHECK_ANSWER', numerator: n, denominator: d })
   }
+
+  const handleReset = () => {
+    setBlocks(makeInitialBlocks())
+    dispatch({ type: 'RESET' })
+  }
+
+  const showCheck = state.phase === 'guided_discovery' && hasBlocksInZone
+  const showExploreButton = state.phase === 'intro'
+  const showLetsGoButton = state.phase === 'exploration'
 
   return (
     <div className="h-dvh w-full flex">
@@ -133,7 +107,7 @@ export default function App() {
           Tutor Chat
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {messages.map((m, i) => (
+          {state.messages.map((m, i) => (
             <div
               key={i}
               className={`text-sm rounded-lg px-3 py-2 max-w-[90%] ${
@@ -148,6 +122,26 @@ export default function App() {
               {m.text}
             </div>
           ))}
+          {showExploreButton && (
+            <div className="pt-2">
+              <Button
+                size="sm"
+                onClick={() => dispatch({ type: 'BEGIN_EXPLORATION' })}
+              >
+                Start Exploring
+              </Button>
+            </div>
+          )}
+          {showLetsGoButton && (
+            <div className="pt-2">
+              <Button
+                size="sm"
+                onClick={() => dispatch({ type: 'FINISH_EXPLORATION' })}
+              >
+                Let's Go!
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -225,31 +219,28 @@ export default function App() {
           ))}
         </svg>
 
-        {/* Check button */}
-        <div className="mt-4">
-          {hasBlocksInZone && (
+        {/* Action buttons */}
+        <div className="mt-4 flex gap-2">
+          {showCheck && (
             <Button onClick={handleCheck} size="lg">
               Check
             </Button>
           )}
-          {checked && (
-            <Button
-              variant="outline"
-              size="lg"
-              className="ml-2"
-              onClick={() => {
-                setBlocks(makeInitialBlocks())
-                setMessages([
-                  { role: 'tutor', text: 'Can you make 1/2 using quarter blocks?' },
-                ])
-                setChecked(false)
-              }}
-            >
-              Reset
+          {state.phase === 'complete' && (
+            <Button variant="outline" size="lg" onClick={handleReset}>
+              Start Over
             </Button>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <LessonProvider>
+      <LessonApp />
+    </LessonProvider>
   )
 }
