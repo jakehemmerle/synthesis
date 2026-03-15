@@ -22,14 +22,14 @@ export const GUIDED_STEPS: GuidedStep[] = [
   },
   {
     id: 'whole-with-quarters',
-    prompt: 'Now try this: can you show that 2/2 and 4/4 are the same? Fill the zone with quarter blocks to make a whole!',
+    prompt: 'Now try this: can you make a whole using only quarter blocks?',
     targetNumerator: 4,
     targetDenominator: 4,
     hints: [
-      'A whole means filling everything up. How many quarter blocks do you need to make a complete whole?',
-      'You need four 1/4 blocks! 1/4 + 1/4 + 1/4 + 1/4 = 4/4 — and that equals one whole, just like 2/2.',
+      'You need four quarter blocks. Drag them from the tray one at a time!',
+      'You need four 1/4 blocks! 1/4 + 1/4 + 1/4 + 1/4 = 4/4 = 1 whole.',
     ],
-    successMessage: "Brilliant! 4/4 = 2/2 = 1 whole. No matter how you slice it, a whole is a whole!",
+    successMessage: "Brilliant! 4/4 = 1 whole. No matter how you slice it, a whole is a whole!",
   },
   {
     id: 'whole-with-fifths',

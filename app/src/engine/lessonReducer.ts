@@ -2,10 +2,10 @@ import type { LessonState, LessonAction } from './types'
 import { GREETING, EXPLORATION_PROMPT, GUIDED_STEPS, ASSESSMENT_INTRO, ASSESSMENT_STEPS, CELEBRATION } from './lessonScript'
 
 export const initialState: LessonState = {
-  phase: 'idle',
-  messages: [],
+  phase: 'intro',
+  messages: [{ role: 'tutor', text: GREETING }],
   currentStepIndex: 0,
-  steps: [],
+  steps: GUIDED_STEPS,
   attempts: 0,
 }
 

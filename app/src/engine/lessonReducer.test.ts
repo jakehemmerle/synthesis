@@ -5,47 +5,34 @@ import { GREETING, EXPLORATION_PROMPT, GUIDED_STEPS, ASSESSMENT_INTRO, ASSESSMEN
 
 describe('lessonReducer', () => {
   describe('initial state', () => {
-    it('starts in idle phase with no messages', () => {
-      expect(initialState.phase).toBe('idle')
-      expect(initialState.messages).toEqual([])
+    it('starts in intro phase with greeting', () => {
+      expect(initialState.phase).toBe('intro')
+      expect(initialState.messages).toHaveLength(1)
+      expect(initialState.messages[0]).toEqual({ role: 'tutor', text: GREETING })
       expect(initialState.currentStepIndex).toBe(0)
       expect(initialState.attempts).toBe(0)
-    })
-  })
-
-  describe('START_LESSON', () => {
-    it('transitions to intro phase and appends greeting', () => {
-      const state = lessonReducer(initialState, { type: 'START_LESSON' })
-      expect(state.phase).toBe('intro')
-      expect(state.messages).toHaveLength(1)
-      expect(state.messages[0]).toEqual({ role: 'tutor', text: GREETING })
-    })
-
-    it('loads guided steps', () => {
-      const state = lessonReducer(initialState, { type: 'START_LESSON' })
-      expect(state.steps).toEqual(GUIDED_STEPS)
+      expect(initialState.steps).toEqual(GUIDED_STEPS)
     })
   })
 
   describe('BEGIN_EXPLORATION', () => {
     it('transitions from intro to exploration with prompt', () => {
-      const introState = lessonReducer(initialState, { type: 'START_LESSON' })
-      const state = lessonReducer(introState, { type: 'BEGIN_EXPLORATION' })
+      const state = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
       expect(state.phase).toBe('exploration')
       expect(state.messages).toHaveLength(2)
       expect(state.messages[1]).toEqual({ role: 'tutor', text: EXPLORATION_PROMPT })
     })
 
     it('does nothing if not in intro phase', () => {
-      const state = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
-      expect(state).toBe(initialState)
+      const explorationState = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
+      const state = lessonReducer(explorationState, { type: 'BEGIN_EXPLORATION' })
+      expect(state).toBe(explorationState)
     })
   })
 
   describe('FINISH_EXPLORATION', () => {
     it('transitions from exploration to guided_discovery with first step prompt', () => {
-      let state = lessonReducer(initialState, { type: 'START_LESSON' })
-      state = lessonReducer(state, { type: 'BEGIN_EXPLORATION' })
+      let state = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
       state = lessonReducer(state, { type: 'FINISH_EXPLORATION' })
       expect(state.phase).toBe('guided_discovery')
       expect(state.messages[state.messages.length - 1]).toEqual({
@@ -62,8 +49,7 @@ describe('lessonReducer', () => {
 
   describe('CHECK_ANSWER (correct)', () => {
     function stateAtGuidedDiscovery(): LessonState {
-      let s = lessonReducer(initialState, { type: 'START_LESSON' })
-      s = lessonReducer(s, { type: 'BEGIN_EXPLORATION' })
+      let s = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
       s = lessonReducer(s, { type: 'FINISH_EXPLORATION' })
       return s
     }
@@ -132,8 +118,7 @@ describe('lessonReducer', () => {
 
   describe('CHECK_ANSWER (incorrect)', () => {
     function stateAtGuidedDiscovery(): LessonState {
-      let s = lessonReducer(initialState, { type: 'START_LESSON' })
-      s = lessonReducer(s, { type: 'BEGIN_EXPLORATION' })
+      let s = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
       s = lessonReducer(s, { type: 'FINISH_EXPLORATION' })
       return s
     }
@@ -287,8 +272,7 @@ describe('lessonReducer', () => {
 
   describe('RESET', () => {
     it('returns to initial state', () => {
-      let state = lessonReducer(initialState, { type: 'START_LESSON' })
-      state = lessonReducer(state, { type: 'BEGIN_EXPLORATION' })
+      let state = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
       state = lessonReducer(state, { type: 'RESET' })
       expect(state).toEqual(initialState)
     })

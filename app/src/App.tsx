@@ -104,12 +104,34 @@ function makeBlock(numerator: number, denominator: number, x: number, y: number)
 
 function makeInitialBlocks(): BlockState[] {
   blockIdCounter = 0
-  return [
-    makeBlock(1, 2, 20, TRAY_Y),
-    makeBlock(1, 4, 140, TRAY_Y),
-    makeBlock(1, 4, 210, TRAY_Y),
-    makeBlock(1, 4, 280, TRAY_Y),
-  ]
+  const blocks: BlockState[] = []
+  let x = 10
+  const spacing = 8
+
+  // 2x halves
+  for (let i = 0; i < 2; i++) {
+    blocks.push(makeBlock(1, 2, x, TRAY_Y))
+    x += blockWidth(1, 2) + spacing
+  }
+  // 4x quarters
+  for (let i = 0; i < 4; i++) {
+    blocks.push(makeBlock(1, 4, x, TRAY_Y))
+    x += blockWidth(1, 4) + spacing
+  }
+  // 3x thirds
+  x = 10
+  const row2Y = TRAY_Y + BLOCK_HEIGHT + spacing
+  for (let i = 0; i < 3; i++) {
+    blocks.push(makeBlock(1, 3, x, row2Y))
+    x += blockWidth(1, 3) + spacing
+  }
+  // 5x fifths
+  for (let i = 0; i < 5; i++) {
+    blocks.push(makeBlock(1, 5, x, row2Y))
+    x += blockWidth(1, 5) + spacing
+  }
+
+  return blocks
 }
 
 function makeTrayBlocks(trayBlocks: { numerator: number; denominator: number }[]): BlockState[] {
@@ -241,14 +263,20 @@ function LessonApp() {
       return
     }
 
-    // Check for combine: does the dropped block overlap a same-denominator block?
+    // Check for combine: only in the work area, NOT inside the comparison zone
     setBlocks(prev => {
       const dragged = prev.find(b => b.id === draggedId)
       if (!dragged) return prev
 
+      // Don't auto-combine if the dragged block is inside any comparison zone
+      const inAnyZone = (bx: number, by: number, bw: number, bh: number) =>
+        isInZone(bx, by, bw, bh) || isInZoneA(bx, by, bw, bh) || isInZoneB(bx, by, bw, bh)
+      if (inAnyZone(dragged.x, dragged.y, dragged.width, dragged.height)) return prev
+
       const target = prev.find(b =>
         b.id !== draggedId &&
         b.denominator === dragged.denominator &&
+        !inAnyZone(b.x, b.y, b.width, b.height) &&
         blocksOverlap(dragged, b) &&
         canCombine(
           { n: dragged.numerator, d: dragged.denominator as Denominator },
@@ -363,7 +391,7 @@ function LessonApp() {
       <div className="h-[60dvh] md:h-auto md:flex-1 flex flex-col items-center justify-center bg-background p-4 overflow-hidden">
         <svg
           ref={svgRef}
-          viewBox="0 0 500 400"
+          viewBox="0 0 500 460"
           className="w-full max-w-[600px] border border-border rounded-lg bg-white"
           style={{ touchAction: 'none' }}
         >
@@ -486,8 +514,8 @@ function LessonApp() {
           ))}
         </svg>
 
-        {/* Action buttons */}
-        <div className="mt-4 flex gap-2">
+        {/* Action buttons — fixed height to prevent layout shift */}
+        <div className="mt-4 flex gap-2 h-12 items-center">
           {showCheck && (
             <Button onClick={handleCheck} size="lg">
               Check

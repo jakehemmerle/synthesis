@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useReducer, type ReactNode } from 'react'
 import type { LessonState, LessonAction } from './types'
 import { lessonReducer, initialState } from './lessonReducer'
 
@@ -11,12 +11,6 @@ const LessonContext = createContext<LessonContextValue | null>(null)
 
 export function LessonProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(lessonReducer, initialState)
-
-  useEffect(() => {
-    if (state.phase === 'idle') {
-      dispatch({ type: 'START_LESSON' })
-    }
-  }, [state.phase])
 
   return (
     <LessonContext.Provider value={{ state, dispatch }}>
