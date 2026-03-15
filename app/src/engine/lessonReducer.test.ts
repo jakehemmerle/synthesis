@@ -3,6 +3,20 @@ import { lessonReducer, initialState } from './lessonReducer'
 import type { LessonState } from './types'
 import { GREETING, EXPLORATION_PROMPT, GUIDED_STEPS, ASSESSMENT_INTRO, ASSESSMENT_STEPS, CELEBRATION } from './lessonScript'
 
+function stateAtGuidedDiscovery(): LessonState {
+  let s = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
+  s = lessonReducer(s, { type: 'FINISH_EXPLORATION' })
+  return s
+}
+
+function stateAtAssessment(): LessonState {
+  let s = stateAtGuidedDiscovery()
+  s = lessonReducer(s, { type: 'CHECK_ANSWER', numerator: 2, denominator: 4 })
+  s = lessonReducer(s, { type: 'CHECK_ANSWER', numerator: 4, denominator: 4 })
+  s = lessonReducer(s, { type: 'CHECK_ANSWER', numerator: 5, denominator: 5 })
+  return s
+}
+
 describe('lessonReducer', () => {
   describe('initial state', () => {
     it('starts in intro phase with greeting', () => {
@@ -48,12 +62,6 @@ describe('lessonReducer', () => {
   })
 
   describe('CHECK_ANSWER (correct)', () => {
-    function stateAtGuidedDiscovery(): LessonState {
-      let s = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
-      s = lessonReducer(s, { type: 'FINISH_EXPLORATION' })
-      return s
-    }
-
     it('advances to next step on correct answer (not last step)', () => {
       const before = stateAtGuidedDiscovery()
       const state = lessonReducer(before, {
@@ -117,12 +125,6 @@ describe('lessonReducer', () => {
   })
 
   describe('CHECK_ANSWER (incorrect)', () => {
-    function stateAtGuidedDiscovery(): LessonState {
-      let s = lessonReducer(initialState, { type: 'BEGIN_EXPLORATION' })
-      s = lessonReducer(s, { type: 'FINISH_EXPLORATION' })
-      return s
-    }
-
     it('gives first hint on first wrong attempt', () => {
       const before = stateAtGuidedDiscovery()
       const state = lessonReducer(before, {
@@ -186,17 +188,6 @@ describe('lessonReducer', () => {
   })
 
   describe('assessment phase', () => {
-    function stateAtAssessment(): LessonState {
-      let s = lessonReducer(initialState, { type: 'START_LESSON' })
-      s = lessonReducer(s, { type: 'BEGIN_EXPLORATION' })
-      s = lessonReducer(s, { type: 'FINISH_EXPLORATION' })
-      // Complete all guided steps
-      s = lessonReducer(s, { type: 'CHECK_ANSWER', numerator: 2, denominator: 4 })
-      s = lessonReducer(s, { type: 'CHECK_ANSWER', numerator: 4, denominator: 4 })
-      s = lessonReducer(s, { type: 'CHECK_ANSWER', numerator: 5, denominator: 5 })
-      return s
-    }
-
     it('starts with assessment steps loaded', () => {
       const state = stateAtAssessment()
       expect(state.phase).toBe('assessment')
