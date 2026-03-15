@@ -68,23 +68,45 @@ describe('lessonReducer', () => {
       return s
     }
 
-    it('appends success message and advances to complete when last step', () => {
+    it('advances to next step on correct answer (not last step)', () => {
       const before = stateAtGuidedDiscovery()
       const state = lessonReducer(before, {
         type: 'CHECK_ANSWER',
         numerator: 2,
         denominator: 4,
       })
+      expect(state.phase).toBe('guided_discovery')
+      expect(state.currentStepIndex).toBe(1)
+      expect(state.attempts).toBe(0)
       expect(state.messages[state.messages.length - 2]).toEqual({
         role: 'tutor',
         text: GUIDED_STEPS[0].successMessage,
       })
       expect(state.messages[state.messages.length - 1]).toEqual({
         role: 'tutor',
+        text: GUIDED_STEPS[1].prompt,
+      })
+    })
+
+    it('advances through all steps to complete', () => {
+      let state = stateAtGuidedDiscovery()
+      // Step 1: 2/4
+      state = lessonReducer(state, { type: 'CHECK_ANSWER', numerator: 2, denominator: 4 })
+      expect(state.currentStepIndex).toBe(1)
+      // Step 2: 4/4
+      state = lessonReducer(state, { type: 'CHECK_ANSWER', numerator: 4, denominator: 4 })
+      expect(state.currentStepIndex).toBe(2)
+      // Step 3: 5/5
+      state = lessonReducer(state, { type: 'CHECK_ANSWER', numerator: 5, denominator: 5 })
+      expect(state.phase).toBe('complete')
+      expect(state.messages[state.messages.length - 2]).toEqual({
+        role: 'tutor',
+        text: GUIDED_STEPS[2].successMessage,
+      })
+      expect(state.messages[state.messages.length - 1]).toEqual({
+        role: 'tutor',
         text: CELEBRATION,
       })
-      expect(state.phase).toBe('complete')
-      expect(state.attempts).toBe(0)
     })
 
     it('checks answer equivalence (4/8 also equals 2/4 target)', () => {
@@ -95,7 +117,8 @@ describe('lessonReducer', () => {
         numerator: 4,
         denominator: 8,
       })
-      expect(state.phase).toBe('complete')
+      expect(state.currentStepIndex).toBe(1)
+      expect(state.phase).toBe('guided_discovery')
     })
   })
 
