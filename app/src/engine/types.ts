@@ -8,7 +8,13 @@ export type LessonPhase =
   | 'intro'
   | 'exploration'
   | 'guided_discovery'
+  | 'assessment'
   | 'complete'
+
+export interface StepBlock {
+  numerator: number
+  denominator: number
+}
 
 export interface GuidedStep {
   id: string
@@ -17,6 +23,9 @@ export interface GuidedStep {
   targetDenominator: number
   hints: string[]
   successMessage: string
+  walkthrough?: string
+  dualZone?: boolean
+  trayBlocks?: StepBlock[]
 }
 
 export interface LessonState {
@@ -31,5 +40,5 @@ export type LessonAction =
   | { type: 'START_LESSON' }
   | { type: 'BEGIN_EXPLORATION' }
   | { type: 'FINISH_EXPLORATION' }
-  | { type: 'CHECK_ANSWER'; numerator: number; denominator: number }
+  | { type: 'CHECK_ANSWER'; numerator: number; denominator: number; numerator2?: number; denominator2?: number }
   | { type: 'RESET' }

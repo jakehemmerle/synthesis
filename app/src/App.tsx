@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, useCallback, useEffect, type PointerEvent as ReactPointerEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { LessonProvider, useLesson } from '@/engine/lessonContext'
 import { canCombine, split as splitFraction, validSplitOptions, type Fraction, type Denominator } from '@/model/fraction'
@@ -24,6 +24,13 @@ const ZONE_W = 160
 const ZONE_H = 120
 const BLOCK_HEIGHT = 50
 const BASE_BLOCK_WIDTH = 200 // width for a whole (1/1); scales by numerator/denominator
+
+// Dual-zone positions (side by side)
+const ZONE_A_X = 40
+const ZONE_B_X = 290
+const DUAL_ZONE_Y = 80
+const DUAL_ZONE_W = 160
+const DUAL_ZONE_H = 120
 
 function blockWidth(numerator: number, denominator: number): number {
   return Math.round(BASE_BLOCK_WIDTH * (numerator / denominator))
@@ -53,10 +60,32 @@ function isInZone(bx: number, by: number, bw: number, bh: number): boolean {
   return cx > ZONE_X && cx < ZONE_X + ZONE_W && cy > ZONE_Y && cy < ZONE_Y + ZONE_H
 }
 
+function isInZoneA(bx: number, by: number, bw: number, bh: number): boolean {
+  const cx = bx + bw / 2
+  const cy = by + bh / 2
+  return cx > ZONE_A_X && cx < ZONE_A_X + DUAL_ZONE_W && cy > DUAL_ZONE_Y && cy < DUAL_ZONE_Y + DUAL_ZONE_H
+}
+
+function isInZoneB(bx: number, by: number, bw: number, bh: number): boolean {
+  const cx = bx + bw / 2
+  const cy = by + bh / 2
+  return cx > ZONE_B_X && cx < ZONE_B_X + DUAL_ZONE_W && cy > DUAL_ZONE_Y && cy < DUAL_ZONE_Y + DUAL_ZONE_H
+}
+
 const ZONE_RECT = { x: ZONE_X, y: ZONE_Y, width: ZONE_W, height: ZONE_H }
+const ZONE_A_RECT = { x: ZONE_A_X, y: DUAL_ZONE_Y, width: DUAL_ZONE_W, height: DUAL_ZONE_H }
+const ZONE_B_RECT = { x: ZONE_B_X, y: DUAL_ZONE_Y, width: DUAL_ZONE_W, height: DUAL_ZONE_H }
 
 function sumBlocksInZone(blocks: BlockState[]): { n: number; d: number } {
   return sumBlocksInZoneModel(blocks, ZONE_RECT)
+}
+
+function sumBlocksInZoneA(blocks: BlockState[]): { n: number; d: number } {
+  return sumBlocksInZoneModel(blocks, ZONE_A_RECT)
+}
+
+function sumBlocksInZoneB(blocks: BlockState[]): { n: number; d: number } {
+  return sumBlocksInZoneModel(blocks, ZONE_B_RECT)
 }
 
 function makeBlock(numerator: number, denominator: number, x: number, y: number): BlockState {
@@ -83,9 +112,39 @@ function makeInitialBlocks(): BlockState[] {
   ]
 }
 
+function makeTrayBlocks(trayBlocks: { numerator: number; denominator: number }[]): BlockState[] {
+  blockIdCounter = 0
+  let x = 20
+  return trayBlocks.map(({ numerator, denominator }) => {
+    const block = makeBlock(numerator, denominator, x, TRAY_Y)
+    x += block.width + 10
+    return block
+  })
+}
+
 function LessonApp() {
   const { state, dispatch } = useLesson()
   const [blocks, setBlocks] = useState<BlockState[]>(makeInitialBlocks)
+  const prevStepRef = useRef<{ phase: string; index: number }>({ phase: 'idle', index: 0 })
+
+  const currentStep = state.steps[state.currentStepIndex]
+  const isDualZone = currentStep?.dualZone ?? false
+
+  // Reset blocks when assessment step changes
+  useEffect(() => {
+    const key = { phase: state.phase, index: state.currentStepIndex }
+    if (
+      key.phase === prevStepRef.current.phase &&
+      key.index === prevStepRef.current.index
+    ) return
+    prevStepRef.current = key
+
+    if (state.phase === 'assessment' && currentStep?.trayBlocks) {
+      setBlocks(makeTrayBlocks(currentStep.trayBlocks))
+    } else if (state.phase === 'idle' || state.phase === 'intro') {
+      setBlocks(makeInitialBlocks())
+    }
+  }, [state.phase, state.currentStepIndex, currentStep])
 
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number; startX: number; startY: number } | null>(null)
@@ -223,11 +282,26 @@ function LessonApp() {
     }, 200)
   }, [svgPoint, splitBlockById])
 
-  const hasBlocksInZone = blocks.some(b => isInZone(b.x, b.y, b.width, b.height))
+  const hasBlocksInZone = isDualZone
+    ? blocks.some(b => isInZoneA(b.x, b.y, b.width, b.height)) &&
+      blocks.some(b => isInZoneB(b.x, b.y, b.width, b.height))
+    : blocks.some(b => isInZone(b.x, b.y, b.width, b.height))
 
   const handleCheck = () => {
-    const { n, d } = sumBlocksInZone(blocks)
-    dispatch({ type: 'CHECK_ANSWER', numerator: n, denominator: d })
+    if (isDualZone) {
+      const sumA = sumBlocksInZoneA(blocks)
+      const sumB = sumBlocksInZoneB(blocks)
+      dispatch({
+        type: 'CHECK_ANSWER',
+        numerator: sumA.n,
+        denominator: sumA.d,
+        numerator2: sumB.n,
+        denominator2: sumB.d,
+      })
+    } else {
+      const { n, d } = sumBlocksInZone(blocks)
+      dispatch({ type: 'CHECK_ANSWER', numerator: n, denominator: d })
+    }
   }
 
   const handleReset = () => {
@@ -235,7 +309,7 @@ function LessonApp() {
     dispatch({ type: 'RESET' })
   }
 
-  const showCheck = state.phase === 'guided_discovery' && hasBlocksInZone
+  const showCheck = (state.phase === 'guided_discovery' || state.phase === 'assessment') && hasBlocksInZone
   const showExploreButton = state.phase === 'intro'
   const showLetsGoButton = state.phase === 'exploration'
 
@@ -293,27 +367,76 @@ function LessonApp() {
           className="w-full max-w-[600px] border border-border rounded-lg bg-white"
           style={{ touchAction: 'none' }}
         >
-          {/* Comparison zone */}
-          <rect
-            x={ZONE_X}
-            y={ZONE_Y}
-            width={ZONE_W}
-            height={ZONE_H}
-            fill="none"
-            stroke="#94a3b8"
-            strokeWidth={2}
-            strokeDasharray="8 4"
-            rx={8}
-          />
-          <text
-            x={ZONE_X + ZONE_W / 2}
-            y={ZONE_Y - 8}
-            textAnchor="middle"
-            fontSize={12}
-            fill="#64748b"
-          >
-            Drop blocks here
-          </text>
+          {isDualZone ? (
+            <>
+              {/* Zone A */}
+              <rect
+                x={ZONE_A_X}
+                y={DUAL_ZONE_Y}
+                width={DUAL_ZONE_W}
+                height={DUAL_ZONE_H}
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth={2}
+                strokeDasharray="8 4"
+                rx={8}
+              />
+              <text
+                x={ZONE_A_X + DUAL_ZONE_W / 2}
+                y={DUAL_ZONE_Y - 8}
+                textAnchor="middle"
+                fontSize={12}
+                fill="#64748b"
+              >
+                Way 1
+              </text>
+              {/* Zone B */}
+              <rect
+                x={ZONE_B_X}
+                y={DUAL_ZONE_Y}
+                width={DUAL_ZONE_W}
+                height={DUAL_ZONE_H}
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth={2}
+                strokeDasharray="8 4"
+                rx={8}
+              />
+              <text
+                x={ZONE_B_X + DUAL_ZONE_W / 2}
+                y={DUAL_ZONE_Y - 8}
+                textAnchor="middle"
+                fontSize={12}
+                fill="#64748b"
+              >
+                Way 2
+              </text>
+            </>
+          ) : (
+            <>
+              {/* Single comparison zone */}
+              <rect
+                x={ZONE_X}
+                y={ZONE_Y}
+                width={ZONE_W}
+                height={ZONE_H}
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth={2}
+                strokeDasharray="8 4"
+                rx={8}
+              />
+              <text
+                x={ZONE_X + ZONE_W / 2}
+                y={ZONE_Y - 8}
+                textAnchor="middle"
+                fontSize={12}
+                fill="#64748b"
+              >
+                Drop blocks here
+              </text>
+            </>
+          )}
 
           {/* Tray label */}
           <text x={20} y={TRAY_Y - 12} fontSize={12} fill="#64748b">
