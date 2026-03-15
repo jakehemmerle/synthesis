@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect, type PointerEvent as ReactPointerEvent } from 'react'
+import confetti from 'canvas-confetti'
 import { Button } from '@/components/ui/button'
 import { LessonProvider, useLesson } from '@/engine/lessonContext'
 import { canCombine, split as splitFraction, validSplitOptions, type Fraction, type Denominator } from '@/model/fraction'
@@ -155,6 +156,43 @@ function LessonApp() {
 
   const currentStep = state.steps[state.currentStepIndex]
   const isDualZone = currentStep?.dualZone ?? false
+
+  // Fire confetti burst when lesson completes
+  useEffect(() => {
+    if (state.phase !== 'complete') return
+
+    const duration = 2500
+    const end = Date.now() + duration
+
+    const frame = () => {
+      confetti({
+        particleCount: 3,
+        angle: 60,
+        spread: 55,
+        origin: { x: 0, y: 0.7 },
+      })
+      confetti({
+        particleCount: 3,
+        angle: 120,
+        spread: 55,
+        origin: { x: 1, y: 0.7 },
+      })
+
+      if (Date.now() < end) {
+        requestAnimationFrame(frame)
+      }
+    }
+
+    // Initial big burst
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+    })
+
+    // Continuous side streams
+    requestAnimationFrame(frame)
+  }, [state.phase])
 
   // Reset blocks when assessment step changes
   useEffect(() => {
