@@ -1,4 +1,5 @@
 import type { LessonState, LessonAction, GuidedStep } from './types'
+import { areEquivalent, type Denominator } from '../model/fraction'
 import { GREETING, EXPLORATION_PROMPT, GUIDED_STEPS, ASSESSMENT_INTRO, ASSESSMENT_STEPS, CELEBRATION } from './lessonScript'
 
 export const initialState: LessonState = {
@@ -16,7 +17,10 @@ function isAnswerCorrect(
   targetD: number,
 ): boolean {
   if (answerD === 0 || targetD === 0) return false
-  return answerN * targetD === targetN * answerD
+  return areEquivalent(
+    { n: answerN, d: answerD as Denominator },
+    { n: targetN, d: targetD as Denominator },
+  )
 }
 
 export function lessonReducer(state: LessonState, action: LessonAction): LessonState {

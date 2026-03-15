@@ -3,7 +3,7 @@ import confetti from 'canvas-confetti'
 import { Button } from '@/components/ui/button'
 import { LessonProvider, useLesson } from '@/engine/lessonContext'
 import { canCombine, split as splitFraction, validSplitOptions, type Fraction, type Denominator } from '@/model/fraction'
-import { isBlockInZone, sumBlocksInZone as sumBlocksInZoneModel } from '@/model/workspace'
+import { isBlockInZone, sumBlocksInZone } from '@/model/workspace'
 
 interface BlockState {
   id: string
@@ -81,6 +81,7 @@ function isInAnyZone(block: { x: number; y: number; width: number; height: numbe
 }
 
 function clearGlowing(blocks: BlockState[]): BlockState[] {
+  if (!blocks.some(b => b.glowing)) return blocks
   return blocks.map(b => b.glowing ? { ...b, glowing: false } : b)
 }
 
@@ -103,6 +104,29 @@ function finalizeCombine(setBlocks: React.Dispatch<React.SetStateAction<BlockSta
     const combined = makeBlock(a.numerator + b.numerator, a.denominator, a.x, a.y)
     return [...prev.filter(bl => !bl.animate), combined]
   })
+}
+
+function startCombineAnimation(
+  setBlocks: React.Dispatch<React.SetStateAction<BlockState[]>>,
+  draggedId: string,
+  targetId: string,
+): void {
+  setBlocks(prev => {
+    const dragged = prev.find(b => b.id === draggedId)
+    const target = prev.find(b => b.id === targetId)
+    if (!dragged || !target) return prev
+
+    const midX = (dragged.x + target.x) / 2
+    const midY = (dragged.y + target.y) / 2
+    return prev.map(b => {
+      if (b.id === draggedId || b.id === targetId) {
+        return { ...b, x: midX, y: midY, animate: true, glowing: false }
+      }
+      return b.glowing ? { ...b, glowing: false } : b
+    })
+  })
+
+  setTimeout(() => finalizeCombine(setBlocks), COMBINE_ANIMATION_MS)
 }
 
 function makeBlock(numerator: number, denominator: number, x: number, y: number): BlockState {
@@ -162,7 +186,6 @@ function makeTrayBlocks(trayBlocks: { numerator: number; denominator: number }[]
 function LessonApp() {
   const { state, dispatch } = useLesson()
   const [blocks, setBlocks] = useState<BlockState[]>(makeInitialBlocks)
-  const prevStepRef = useRef<{ phase: string; index: number }>({ phase: 'idle', index: 0 })
 
   const currentStep = state.steps[state.currentStepIndex]
   const isDualZone = currentStep?.dualZone ?? false
@@ -209,13 +232,6 @@ function LessonApp() {
 
   // Reset blocks when assessment step changes
   useEffect(() => {
-    const key = { phase: state.phase, index: state.currentStepIndex }
-    if (
-      key.phase === prevStepRef.current.phase &&
-      key.index === prevStepRef.current.index
-    ) return
-    prevStepRef.current = key
-
     if (state.phase === 'assessment' && currentStep?.trayBlocks) {
       setBlocks(makeTrayBlocks(currentStep.trayBlocks))
     } else if (state.phase === 'idle' || state.phase === 'intro') {
@@ -401,55 +417,36 @@ function LessonApp() {
 
     // If there's an active attraction, auto-combine
     if (attraction) {
-      setBlocks(prev => {
-        const dragged = prev.find(b => b.id === draggedId)
-        const target = prev.find(b => b.id === attraction.targetId)
-        if (!dragged || !target) return prev
-
-        const midX = (dragged.x + target.x) / 2
-        const midY = (dragged.y + target.y) / 2
-        return prev.map(b => {
-          if (b.id === dragged.id || b.id === target.id) {
-            return { ...b, x: midX, y: midY, animate: true, glowing: false }
-          }
-          return b.glowing ? { ...b, glowing: false } : b
-        })
-      })
-
-      setTimeout(() => finalizeCombine(setBlocks), COMBINE_ANIMATION_MS)
+      startCombineAnimation(setBlocks, draggedId, attraction.targetId)
       return
     }
 
     // Normal combine: overlap-based, NOT inside comparison zones
-    setBlocks(prev => {
-      const dragged = prev.find(b => b.id === draggedId)
-      if (!dragged) return prev
-      if (isInAnyZone(dragged)) return prev
+    // Find the combine target from current state
+    const currentBlocks = blocks
+    const dragged = currentBlocks.find(b => b.id === draggedId)
+    if (!dragged || isInAnyZone(dragged)) {
+      setBlocks(clearGlowing)
+      return
+    }
 
-      const target = prev.find(b =>
-        b.id !== draggedId &&
-        b.denominator === dragged.denominator &&
-        !isInAnyZone(b) &&
-        blocksOverlap(dragged, b) &&
-        canCombine(
-          { n: dragged.numerator, d: dragged.denominator as Denominator },
-          { n: b.numerator, d: b.denominator as Denominator },
-        )
+    const target = currentBlocks.find(b =>
+      b.id !== draggedId &&
+      b.denominator === dragged.denominator &&
+      !isInAnyZone(b) &&
+      blocksOverlap(dragged, b) &&
+      canCombine(
+        { n: dragged.numerator, d: dragged.denominator as Denominator },
+        { n: b.numerator, d: b.denominator as Denominator },
       )
-      if (!target) return clearGlowing(prev)
+    )
+    if (!target) {
+      setBlocks(clearGlowing)
+      return
+    }
 
-      const midX = (dragged.x + target.x) / 2
-      const midY = (dragged.y + target.y) / 2
-      return prev.map(b => {
-        if (b.id === dragged.id || b.id === target.id) {
-          return { ...b, x: midX, y: midY, animate: true, glowing: false }
-        }
-        return b.glowing ? { ...b, glowing: false } : b
-      })
-    })
-
-    setTimeout(() => finalizeCombine(setBlocks), COMBINE_ANIMATION_MS)
-  }, [svgPoint, splitBlockById])
+    startCombineAnimation(setBlocks, draggedId, target.id)
+  }, [svgPoint, splitBlockById, blocks])
 
   const hasBlocksInZone = isDualZone
     ? blocks.some(b => isBlockInZone(b, ZONE_A_RECT)) &&
@@ -458,8 +455,8 @@ function LessonApp() {
 
   const handleCheck = () => {
     if (isDualZone) {
-      const sumA = sumBlocksInZoneModel(blocks, ZONE_A_RECT)
-      const sumB = sumBlocksInZoneModel(blocks, ZONE_B_RECT)
+      const sumA = sumBlocksInZone(blocks, ZONE_A_RECT)
+      const sumB = sumBlocksInZone(blocks, ZONE_B_RECT)
       dispatch({
         type: 'CHECK_ANSWER',
         numerator: sumA.n,
@@ -468,7 +465,7 @@ function LessonApp() {
         denominator2: sumB.d,
       })
     } else {
-      const { n, d } = sumBlocksInZoneModel(blocks, ZONE_RECT)
+      const { n, d } = sumBlocksInZone(blocks, ZONE_RECT)
       dispatch({ type: 'CHECK_ANSWER', numerator: n, denominator: d })
     }
   }
