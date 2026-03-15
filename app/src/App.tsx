@@ -224,9 +224,9 @@ function LessonApp() {
   const showLetsGoButton = state.phase === 'exploration'
 
   return (
-    <div className="h-dvh w-full flex">
-      {/* Chat panel */}
-      <div className="w-80 shrink-0 border-r border-border flex flex-col bg-card">
+    <div className="h-dvh w-full flex flex-col md:flex-row">
+      {/* Chat panel: 40% height in portrait, 320px width in landscape */}
+      <div className="h-[40dvh] md:h-auto md:w-80 shrink-0 border-b md:border-b-0 md:border-r border-border flex flex-col bg-card">
         <div className="p-3 border-b border-border font-semibold text-sm">
           Tutor Chat
         </div>
@@ -269,8 +269,8 @@ function LessonApp() {
         </div>
       </div>
 
-      {/* SVG workspace */}
-      <div className="flex-1 flex flex-col items-center justify-center bg-background p-4">
+      {/* SVG workspace: 60% height in portrait, flex-1 in landscape */}
+      <div className="h-[60dvh] md:h-auto md:flex-1 flex flex-col items-center justify-center bg-background p-4 overflow-hidden">
         <svg
           ref={svgRef}
           viewBox="0 0 500 400"
