@@ -1,5 +1,7 @@
 /** Fraction model — pure functions for fraction arithmetic within denominator range 2–5. */
 
+import { gcd } from './math'
+
 export type Denominator = 2 | 3 | 4 | 5
 
 export interface Fraction {
@@ -8,15 +10,6 @@ export interface Fraction {
 }
 
 const VALID_DENOMS = new Set<number>([2, 3, 4, 5])
-
-function gcd(a: number, b: number): number {
-  a = Math.abs(a)
-  b = Math.abs(b)
-  while (b) {
-    ;[a, b] = [b, a % b]
-  }
-  return a
-}
 
 /** Reduce fraction to lowest terms. Returns null if result denominator is outside 2–5. */
 export function simplify(f: Fraction): Fraction {
@@ -53,11 +46,7 @@ export function combine(a: Fraction, b: Fraction): Fraction | null {
 export function split(f: Fraction, parts: number): Fraction[] | null {
   const newDenom = f.d * parts
   if (!VALID_DENOMS.has(newDenom)) return null
-  if (f.n % parts !== 0 && (f.n * 1) % 1 !== 0) {
-    // For unit fractions (n=1), splitting into `parts` means each piece is 1/newDenom
-    // For non-unit fractions, each piece gets f.n numerator (since we multiply denom)
-  }
-  const newNum = f.n // each piece has numerator f.n, denominator f.d * parts
+  const newNum = f.n
   return Array.from({ length: parts }, () => ({
     n: newNum,
     d: newDenom as Denominator,

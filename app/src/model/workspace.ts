@@ -1,19 +1,12 @@
 /** Workspace model — zone checking and block-in-zone queries. */
 
-export interface Point {
-  x: number
-  y: number
-}
+import { gcd, lcm } from './math'
 
 export interface Rect {
   x: number
   y: number
   width: number
   height: number
-}
-
-export interface Zone extends Rect {
-  id: string
 }
 
 export interface WorkspaceBlock {
@@ -51,31 +44,22 @@ export function sumBlocksInZone(
   blocks: WorkspaceBlock[],
   zone: Rect,
 ): { n: number; d: number } {
-  const inZone = blocksInZone(blocks, zone)
-  if (inZone.length === 0) return { n: 0, d: 1 }
-
-  // Find LCD among blocks in zone
-  const denoms = inZone.map((b) => b.denominator)
-  const lcd = denoms.reduce(lcm)
+  // Single pass: find LCD and accumulate numerator sum together
+  let lcd = 1
+  let count = 0
+  for (const b of blocks) {
+    if (!isBlockInZone(b, zone)) continue
+    lcd = lcm(lcd, b.denominator)
+    count++
+  }
+  if (count === 0) return { n: 0, d: 1 }
 
   let numeratorSum = 0
-  for (const b of inZone) {
+  for (const b of blocks) {
+    if (!isBlockInZone(b, zone)) continue
     numeratorSum += b.numerator * (lcd / b.denominator)
   }
 
   const g = gcd(numeratorSum, lcd)
   return { n: numeratorSum / g, d: lcd / g }
-}
-
-function gcd(a: number, b: number): number {
-  a = Math.abs(a)
-  b = Math.abs(b)
-  while (b) {
-    ;[a, b] = [b, a % b]
-  }
-  return a
-}
-
-function lcm(a: number, b: number): number {
-  return (a * b) / gcd(a, b)
 }
