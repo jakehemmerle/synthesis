@@ -16,6 +16,7 @@ interface BlockState {
   y: number
   color: string
   animate?: boolean
+  glowing?: boolean
 }
 
 const TRAY_Y = 280
@@ -57,6 +58,15 @@ function blocksOverlap(a: BlockState, b: BlockState): boolean {
   const ax = a.x, ay = a.y, aw = a.width, ah = a.height
   const bx = b.x, by = b.y, bw = b.width, bh = b.height
   return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+}
+
+const ATTRACTION_RANGE = 60
+const ATTRACTION_LERP = 0.15
+
+function edgeDistance(a: BlockState, b: BlockState): number {
+  const dx = Math.max(0, Math.max(a.x - (b.x + b.width), b.x - (a.x + a.width)))
+  const dy = Math.max(0, Math.max(a.y - (b.y + b.height), b.y - (a.y + a.height)))
+  return Math.sqrt(dx * dx + dy * dy)
 }
 
 function isInZone(bx: number, by: number, bw: number, bh: number): boolean {
@@ -212,6 +222,7 @@ function LessonApp() {
 
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number; startX: number; startY: number } | null>(null)
+  const attractionRef = useRef<{ targetId: string; origX: number; origY: number } | null>(null)
 
   const svgPoint = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current
@@ -234,9 +245,97 @@ function LessonApp() {
     if (!dragRef.current) return
     const pt = svgPoint(e.clientX, e.clientY)
     const { id, offsetX, offsetY } = dragRef.current
-    setBlocks(prev => prev.map(b =>
-      b.id === id ? { ...b, x: pt.x - offsetX, y: pt.y - offsetY } : b
-    ))
+    const newX = pt.x - offsetX
+    const newY = pt.y - offsetY
+
+    setBlocks(prev => {
+      let updated = prev.map(b =>
+        b.id === id ? { ...b, x: newX, y: newY } : b
+      )
+
+      const dragged = updated.find(b => b.id === id)
+      if (!dragged) return updated
+
+      const inAnyZone = (bx: number, by: number, bw: number, bh: number) =>
+        isInZone(bx, by, bw, bh) || isInZoneA(bx, by, bw, bh) || isInZoneB(bx, by, bw, bh)
+
+      // No attraction if dragged block is in a zone
+      if (inAnyZone(dragged.x, dragged.y, dragged.width, dragged.height)) {
+        if (attractionRef.current) {
+          const att = attractionRef.current
+          attractionRef.current = null
+          return updated.map(b =>
+            b.id === att.targetId ? { ...b, x: att.origX, y: att.origY, glowing: false } :
+            b.glowing ? { ...b, glowing: false } : b
+          )
+        }
+        return updated.map(b => b.glowing ? { ...b, glowing: false } : b)
+      }
+
+      // Find closest compatible block within attraction range
+      let closest: BlockState | null = null
+      let closestDist = Infinity
+      for (const b of updated) {
+        if (b.id === id) continue
+        if (b.denominator !== dragged.denominator) continue
+        if (inAnyZone(b.x, b.y, b.width, b.height)) continue
+        if (!canCombine(
+          { n: dragged.numerator, d: dragged.denominator as Denominator },
+          { n: b.numerator, d: b.denominator as Denominator },
+        )) continue
+        // Use original position for distance if this block is currently attracted
+        const origX = (attractionRef.current?.targetId === b.id) ? attractionRef.current.origX : b.x
+        const origY = (attractionRef.current?.targetId === b.id) ? attractionRef.current.origY : b.y
+        const testBlock = { ...b, x: origX, y: origY }
+        const dist = edgeDistance(dragged, testBlock)
+        if (dist < closestDist) {
+          closestDist = dist
+          closest = b
+        }
+      }
+
+      if (closest && closestDist < ATTRACTION_RANGE) {
+        // Switch attraction target if needed
+        if (attractionRef.current && attractionRef.current.targetId !== closest.id) {
+          const att = attractionRef.current
+          updated = updated.map(b =>
+            b.id === att.targetId ? { ...b, x: att.origX, y: att.origY, glowing: false } : b
+          )
+        }
+        if (!attractionRef.current || attractionRef.current.targetId !== closest.id) {
+          const origX = closest.x
+          const origY = closest.y
+          attractionRef.current = { targetId: closest.id, origX, origY }
+        }
+
+        // Lerp attracted block toward dragged block
+        const att = attractionRef.current!
+        const target = updated.find(b => b.id === att.targetId)!
+        const dcx = dragged.x + dragged.width / 2
+        const dcy = dragged.y + dragged.height / 2
+        const tcx = att.origX + target.width / 2
+        const tcy = att.origY + target.height / 2
+        const lerpX = att.origX + (dcx - tcx) * ATTRACTION_LERP
+        const lerpY = att.origY + (dcy - tcy) * ATTRACTION_LERP
+
+        return updated.map(b => {
+          if (b.id === att.targetId) return { ...b, x: lerpX, y: lerpY, glowing: true }
+          if (b.id === id) return { ...b, glowing: true }
+          return b.glowing ? { ...b, glowing: false } : b
+        })
+      } else {
+        // No block in range — reset attraction
+        if (attractionRef.current) {
+          const att = attractionRef.current
+          attractionRef.current = null
+          return updated.map(b =>
+            b.id === att.targetId ? { ...b, x: att.origX, y: att.origY, glowing: false } :
+            b.glowing ? { ...b, glowing: false } : b
+          )
+        }
+        return updated.map(b => b.glowing ? { ...b, glowing: false } : b)
+      }
+    })
   }, [svgPoint])
 
   const TAP_THRESHOLD = 5
@@ -300,17 +399,57 @@ function LessonApp() {
     const wasTap = Math.abs(dx) < TAP_THRESHOLD && Math.abs(dy) < TAP_THRESHOLD
     dragRef.current = null
 
+    // Clear attraction state
+    const attraction = attractionRef.current
+    attractionRef.current = null
+
     if (wasTap) {
+      // Reset any attracted block to original position
+      if (attraction) {
+        setBlocks(prev => prev.map(b =>
+          b.id === attraction.targetId
+            ? { ...b, x: attraction.origX, y: attraction.origY, glowing: false }
+            : b.glowing ? { ...b, glowing: false } : b
+        ))
+      }
       splitBlockById(draggedId)
       return
     }
 
-    // Check for combine: only in the work area, NOT inside the comparison zone
+    // If there's an active attraction, auto-combine
+    if (attraction) {
+      setBlocks(prev => {
+        const dragged = prev.find(b => b.id === draggedId)
+        const target = prev.find(b => b.id === attraction.targetId)
+        if (!dragged || !target) return prev
+
+        const midX = (dragged.x + target.x) / 2
+        const midY = (dragged.y + target.y) / 2
+        return prev.map(b => {
+          if (b.id === dragged.id || b.id === target.id) {
+            return { ...b, x: midX, y: midY, animate: true, glowing: false }
+          }
+          return b.glowing ? { ...b, glowing: false } : b
+        })
+      })
+
+      setTimeout(() => {
+        setBlocks(prev => {
+          const animating = prev.filter(b => b.animate)
+          if (animating.length !== 2) return prev
+          const [a, b] = animating
+          const combined = makeBlock(a.numerator + b.numerator, a.denominator, a.x, a.y)
+          return [...prev.filter(bl => !bl.animate), combined]
+        })
+      }, 200)
+      return
+    }
+
+    // Normal combine: overlap-based, NOT inside comparison zones
     setBlocks(prev => {
       const dragged = prev.find(b => b.id === draggedId)
       if (!dragged) return prev
 
-      // Don't auto-combine if the dragged block is inside any comparison zone
       const inAnyZone = (bx: number, by: number, bw: number, bh: number) =>
         isInZone(bx, by, bw, bh) || isInZoneA(bx, by, bw, bh) || isInZoneB(bx, by, bw, bh)
       if (inAnyZone(dragged.x, dragged.y, dragged.width, dragged.height)) return prev
@@ -325,28 +464,24 @@ function LessonApp() {
           { n: b.numerator, d: b.denominator as Denominator },
         )
       )
-      if (!target) return prev
+      if (!target) return prev.map(b => b.glowing ? { ...b, glowing: false } : b)
 
-      // Animate both blocks to the midpoint
       const midX = (dragged.x + target.x) / 2
       const midY = (dragged.y + target.y) / 2
       return prev.map(b => {
         if (b.id === dragged.id || b.id === target.id) {
-          return { ...b, x: midX, y: midY, animate: true }
+          return { ...b, x: midX, y: midY, animate: true, glowing: false }
         }
-        return b
+        return b.glowing ? { ...b, glowing: false } : b
       })
     })
 
-    // After animation, replace the two blocks with one combined block
     setTimeout(() => {
       setBlocks(prev => {
         const animating = prev.filter(b => b.animate)
         if (animating.length !== 2) return prev
         const [a, b] = animating
-        const newNum = a.numerator + b.numerator
-        const newDenom = a.denominator
-        const combined = makeBlock(newNum, newDenom, a.x, a.y)
+        const combined = makeBlock(a.numerator + b.numerator, a.denominator, a.x, a.y)
         return [...prev.filter(bl => !bl.animate), combined]
       })
     }, 200)
@@ -437,6 +572,17 @@ function LessonApp() {
           className="w-full max-w-[600px] border border-border rounded-lg bg-white"
           style={{ touchAction: 'none' }}
         >
+          <defs>
+            <filter id="attraction-glow" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+              <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.5 0" result="softBlur" />
+              <feMerge>
+                <feMergeNode in="softBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
           {/* Reference bar — "1 whole" */}
           <rect
             x={REF_BAR_X}
@@ -550,6 +696,7 @@ function LessonApp() {
               key={block.id}
               transform={`translate(${block.x}, ${block.y})`}
               className={block.animate ? 'block-animate' : undefined}
+              filter={block.glowing ? 'url(#attraction-glow)' : undefined}
             >
               <rect
                 x={0}
