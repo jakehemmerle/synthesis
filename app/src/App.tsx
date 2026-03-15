@@ -3,11 +3,10 @@ import confetti from 'canvas-confetti'
 import { Button } from '@/components/ui/button'
 import { LessonProvider, useLesson } from '@/engine/lessonContext'
 import { canCombine, split as splitFraction, validSplitOptions, type Fraction, type Denominator } from '@/model/fraction'
-import { sumBlocksInZone as sumBlocksInZoneModel } from '@/model/workspace'
+import { isBlockInZone, sumBlocksInZone as sumBlocksInZoneModel } from '@/model/workspace'
 
 interface BlockState {
   id: string
-  label: string
   numerator: number
   denominator: number
   width: number
@@ -30,6 +29,9 @@ const ZONE_W = 160
 const ZONE_H = 120
 const BLOCK_HEIGHT = 50
 const BASE_BLOCK_WIDTH = 200 // width for a whole (1/1); scales by numerator/denominator
+const BLOCK_SPACING = 8
+const TAP_THRESHOLD = 5
+const COMBINE_ANIMATION_MS = 200
 
 // Dual-zone positions (side by side)
 const ZONE_A_X = 40
@@ -69,44 +71,43 @@ function edgeDistance(a: BlockState, b: BlockState): number {
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-function isInZone(bx: number, by: number, bw: number, bh: number): boolean {
-  const cx = bx + bw / 2
-  const cy = by + bh / 2
-  return cx > ZONE_X && cx < ZONE_X + ZONE_W && cy > ZONE_Y && cy < ZONE_Y + ZONE_H
-}
-
-function isInZoneA(bx: number, by: number, bw: number, bh: number): boolean {
-  const cx = bx + bw / 2
-  const cy = by + bh / 2
-  return cx > ZONE_A_X && cx < ZONE_A_X + DUAL_ZONE_W && cy > DUAL_ZONE_Y && cy < DUAL_ZONE_Y + DUAL_ZONE_H
-}
-
-function isInZoneB(bx: number, by: number, bw: number, bh: number): boolean {
-  const cx = bx + bw / 2
-  const cy = by + bh / 2
-  return cx > ZONE_B_X && cx < ZONE_B_X + DUAL_ZONE_W && cy > DUAL_ZONE_Y && cy < DUAL_ZONE_Y + DUAL_ZONE_H
-}
-
 const ZONE_RECT = { x: ZONE_X, y: ZONE_Y, width: ZONE_W, height: ZONE_H }
 const ZONE_A_RECT = { x: ZONE_A_X, y: DUAL_ZONE_Y, width: DUAL_ZONE_W, height: DUAL_ZONE_H }
 const ZONE_B_RECT = { x: ZONE_B_X, y: DUAL_ZONE_Y, width: DUAL_ZONE_W, height: DUAL_ZONE_H }
+const ALL_ZONES = [ZONE_RECT, ZONE_A_RECT, ZONE_B_RECT]
 
-function sumBlocksInZone(blocks: BlockState[]): { n: number; d: number } {
-  return sumBlocksInZoneModel(blocks, ZONE_RECT)
+function isInAnyZone(block: { x: number; y: number; width: number; height: number }): boolean {
+  return ALL_ZONES.some(zone => isBlockInZone(block, zone))
 }
 
-function sumBlocksInZoneA(blocks: BlockState[]): { n: number; d: number } {
-  return sumBlocksInZoneModel(blocks, ZONE_A_RECT)
+function clearGlowing(blocks: BlockState[]): BlockState[] {
+  return blocks.map(b => b.glowing ? { ...b, glowing: false } : b)
 }
 
-function sumBlocksInZoneB(blocks: BlockState[]): { n: number; d: number } {
-  return sumBlocksInZoneModel(blocks, ZONE_B_RECT)
+function resetAttraction(
+  blocks: BlockState[],
+  att: { targetId: string; origX: number; origY: number },
+): BlockState[] {
+  return blocks.map(b =>
+    b.id === att.targetId
+      ? { ...b, x: att.origX, y: att.origY, glowing: false }
+      : b.glowing ? { ...b, glowing: false } : b
+  )
+}
+
+function finalizeCombine(setBlocks: React.Dispatch<React.SetStateAction<BlockState[]>>): void {
+  setBlocks(prev => {
+    const animating = prev.filter(b => b.animate)
+    if (animating.length !== 2) return prev
+    const [a, b] = animating
+    const combined = makeBlock(a.numerator + b.numerator, a.denominator, a.x, a.y)
+    return [...prev.filter(bl => !bl.animate), combined]
+  })
 }
 
 function makeBlock(numerator: number, denominator: number, x: number, y: number): BlockState {
   return {
     id: nextBlockId(),
-    label: `${numerator}/${denominator}`,
     numerator,
     denominator,
     width: blockWidth(numerator, denominator),
@@ -121,29 +122,28 @@ function makeInitialBlocks(): BlockState[] {
   blockIdCounter = 0
   const blocks: BlockState[] = []
   let x = 10
-  const spacing = 8
 
   // 2x halves
   for (let i = 0; i < 2; i++) {
     blocks.push(makeBlock(1, 2, x, TRAY_Y))
-    x += blockWidth(1, 2) + spacing
+    x += blockWidth(1, 2) + BLOCK_SPACING
   }
   // 4x quarters
   for (let i = 0; i < 4; i++) {
     blocks.push(makeBlock(1, 4, x, TRAY_Y))
-    x += blockWidth(1, 4) + spacing
+    x += blockWidth(1, 4) + BLOCK_SPACING
   }
   // 3x thirds
   x = 10
-  const row2Y = TRAY_Y + BLOCK_HEIGHT + spacing
+  const row2Y = TRAY_Y + BLOCK_HEIGHT + BLOCK_SPACING
   for (let i = 0; i < 3; i++) {
     blocks.push(makeBlock(1, 3, x, row2Y))
-    x += blockWidth(1, 3) + spacing
+    x += blockWidth(1, 3) + BLOCK_SPACING
   }
   // 5x fifths
   for (let i = 0; i < 5; i++) {
     blocks.push(makeBlock(1, 5, x, row2Y))
-    x += blockWidth(1, 5) + spacing
+    x += blockWidth(1, 5) + BLOCK_SPACING
   }
 
   return blocks
@@ -173,6 +173,7 @@ function LessonApp() {
 
     const duration = 2500
     const end = Date.now() + duration
+    let rafId = 0
 
     const frame = () => {
       confetti({
@@ -189,7 +190,7 @@ function LessonApp() {
       })
 
       if (Date.now() < end) {
-        requestAnimationFrame(frame)
+        rafId = requestAnimationFrame(frame)
       }
     }
 
@@ -201,7 +202,9 @@ function LessonApp() {
     })
 
     // Continuous side streams
-    requestAnimationFrame(frame)
+    rafId = requestAnimationFrame(frame)
+
+    return () => cancelAnimationFrame(rafId)
   }, [state.phase])
 
   // Reset blocks when assessment step changes
@@ -256,20 +259,14 @@ function LessonApp() {
       const dragged = updated.find(b => b.id === id)
       if (!dragged) return updated
 
-      const inAnyZone = (bx: number, by: number, bw: number, bh: number) =>
-        isInZone(bx, by, bw, bh) || isInZoneA(bx, by, bw, bh) || isInZoneB(bx, by, bw, bh)
-
       // No attraction if dragged block is in a zone
-      if (inAnyZone(dragged.x, dragged.y, dragged.width, dragged.height)) {
+      if (isInAnyZone(dragged)) {
         if (attractionRef.current) {
           const att = attractionRef.current
           attractionRef.current = null
-          return updated.map(b =>
-            b.id === att.targetId ? { ...b, x: att.origX, y: att.origY, glowing: false } :
-            b.glowing ? { ...b, glowing: false } : b
-          )
+          return resetAttraction(updated, att)
         }
-        return updated.map(b => b.glowing ? { ...b, glowing: false } : b)
+        return clearGlowing(updated)
       }
 
       // Find closest compatible block within attraction range
@@ -278,16 +275,15 @@ function LessonApp() {
       for (const b of updated) {
         if (b.id === id) continue
         if (b.denominator !== dragged.denominator) continue
-        if (inAnyZone(b.x, b.y, b.width, b.height)) continue
+        if (isInAnyZone(b)) continue
         if (!canCombine(
           { n: dragged.numerator, d: dragged.denominator as Denominator },
           { n: b.numerator, d: b.denominator as Denominator },
         )) continue
         // Use original position for distance if this block is currently attracted
-        const origX = (attractionRef.current?.targetId === b.id) ? attractionRef.current.origX : b.x
-        const origY = (attractionRef.current?.targetId === b.id) ? attractionRef.current.origY : b.y
-        const testBlock = { ...b, x: origX, y: origY }
-        const dist = edgeDistance(dragged, testBlock)
+        const bx = (attractionRef.current?.targetId === b.id) ? attractionRef.current.origX : b.x
+        const by = (attractionRef.current?.targetId === b.id) ? attractionRef.current.origY : b.y
+        const dist = edgeDistance(dragged, { ...b, x: bx, y: by })
         if (dist < closestDist) {
           closestDist = dist
           closest = b
@@ -303,9 +299,7 @@ function LessonApp() {
           )
         }
         if (!attractionRef.current || attractionRef.current.targetId !== closest.id) {
-          const origX = closest.x
-          const origY = closest.y
-          attractionRef.current = { targetId: closest.id, origX, origY }
+          attractionRef.current = { targetId: closest.id, origX: closest.x, origY: closest.y }
         }
 
         // Lerp attracted block toward dragged block
@@ -328,17 +322,12 @@ function LessonApp() {
         if (attractionRef.current) {
           const att = attractionRef.current
           attractionRef.current = null
-          return updated.map(b =>
-            b.id === att.targetId ? { ...b, x: att.origX, y: att.origY, glowing: false } :
-            b.glowing ? { ...b, glowing: false } : b
-          )
+          return resetAttraction(updated, att)
         }
-        return updated.map(b => b.glowing ? { ...b, glowing: false } : b)
+        return clearGlowing(updated)
       }
     })
   }, [svgPoint])
-
-  const TAP_THRESHOLD = 5
 
   const splitBlockById = useCallback((blockId: string) => {
     // Use a ref to capture the new block IDs for the animation step
@@ -373,19 +362,18 @@ function LessonApp() {
       const ids = new Set(newBlockIds)
 
       setBlocks(prev => {
-        const spacing = 8
         let currentX = origX
         return prev.map(b => {
           if (!ids.has(b.id)) return b
           const updated = { ...b, x: currentX, animate: true }
-          currentX += b.width + spacing
+          currentX += b.width + BLOCK_SPACING
           return updated
         })
       })
 
       setTimeout(() => {
         setBlocks(prev => prev.map(b => b.animate ? { ...b, animate: false } : b))
-      }, 200)
+      }, COMBINE_ANIMATION_MS)
     })
   }, [])
 
@@ -404,13 +392,8 @@ function LessonApp() {
     attractionRef.current = null
 
     if (wasTap) {
-      // Reset any attracted block to original position
       if (attraction) {
-        setBlocks(prev => prev.map(b =>
-          b.id === attraction.targetId
-            ? { ...b, x: attraction.origX, y: attraction.origY, glowing: false }
-            : b.glowing ? { ...b, glowing: false } : b
-        ))
+        setBlocks(prev => resetAttraction(prev, attraction))
       }
       splitBlockById(draggedId)
       return
@@ -433,15 +416,7 @@ function LessonApp() {
         })
       })
 
-      setTimeout(() => {
-        setBlocks(prev => {
-          const animating = prev.filter(b => b.animate)
-          if (animating.length !== 2) return prev
-          const [a, b] = animating
-          const combined = makeBlock(a.numerator + b.numerator, a.denominator, a.x, a.y)
-          return [...prev.filter(bl => !bl.animate), combined]
-        })
-      }, 200)
+      setTimeout(() => finalizeCombine(setBlocks), COMBINE_ANIMATION_MS)
       return
     }
 
@@ -449,22 +424,19 @@ function LessonApp() {
     setBlocks(prev => {
       const dragged = prev.find(b => b.id === draggedId)
       if (!dragged) return prev
-
-      const inAnyZone = (bx: number, by: number, bw: number, bh: number) =>
-        isInZone(bx, by, bw, bh) || isInZoneA(bx, by, bw, bh) || isInZoneB(bx, by, bw, bh)
-      if (inAnyZone(dragged.x, dragged.y, dragged.width, dragged.height)) return prev
+      if (isInAnyZone(dragged)) return prev
 
       const target = prev.find(b =>
         b.id !== draggedId &&
         b.denominator === dragged.denominator &&
-        !inAnyZone(b.x, b.y, b.width, b.height) &&
+        !isInAnyZone(b) &&
         blocksOverlap(dragged, b) &&
         canCombine(
           { n: dragged.numerator, d: dragged.denominator as Denominator },
           { n: b.numerator, d: b.denominator as Denominator },
         )
       )
-      if (!target) return prev.map(b => b.glowing ? { ...b, glowing: false } : b)
+      if (!target) return clearGlowing(prev)
 
       const midX = (dragged.x + target.x) / 2
       const midY = (dragged.y + target.y) / 2
@@ -476,26 +448,18 @@ function LessonApp() {
       })
     })
 
-    setTimeout(() => {
-      setBlocks(prev => {
-        const animating = prev.filter(b => b.animate)
-        if (animating.length !== 2) return prev
-        const [a, b] = animating
-        const combined = makeBlock(a.numerator + b.numerator, a.denominator, a.x, a.y)
-        return [...prev.filter(bl => !bl.animate), combined]
-      })
-    }, 200)
+    setTimeout(() => finalizeCombine(setBlocks), COMBINE_ANIMATION_MS)
   }, [svgPoint, splitBlockById])
 
   const hasBlocksInZone = isDualZone
-    ? blocks.some(b => isInZoneA(b.x, b.y, b.width, b.height)) &&
-      blocks.some(b => isInZoneB(b.x, b.y, b.width, b.height))
-    : blocks.some(b => isInZone(b.x, b.y, b.width, b.height))
+    ? blocks.some(b => isBlockInZone(b, ZONE_A_RECT)) &&
+      blocks.some(b => isBlockInZone(b, ZONE_B_RECT))
+    : blocks.some(b => isBlockInZone(b, ZONE_RECT))
 
   const handleCheck = () => {
     if (isDualZone) {
-      const sumA = sumBlocksInZoneA(blocks)
-      const sumB = sumBlocksInZoneB(blocks)
+      const sumA = sumBlocksInZoneModel(blocks, ZONE_A_RECT)
+      const sumB = sumBlocksInZoneModel(blocks, ZONE_B_RECT)
       dispatch({
         type: 'CHECK_ANSWER',
         numerator: sumA.n,
@@ -504,7 +468,7 @@ function LessonApp() {
         denominator2: sumB.d,
       })
     } else {
-      const { n, d } = sumBlocksInZone(blocks)
+      const { n, d } = sumBlocksInZoneModel(blocks, ZONE_RECT)
       dispatch({ type: 'CHECK_ANSWER', numerator: n, denominator: d })
     }
   }
@@ -720,7 +684,7 @@ function LessonApp() {
                 fill="white"
                 pointerEvents="none"
               >
-                {block.label}
+                {block.numerator}/{block.denominator}
               </text>
             </g>
           ))}
