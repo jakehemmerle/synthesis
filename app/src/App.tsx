@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, type PointerEvent as ReactPointerEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { LessonProvider, useLesson } from '@/engine/lessonContext'
+import { canCombine, split as splitFraction, validSplitOptions, type Fraction, type Denominator } from '@/model/fraction'
 
 interface BlockState {
   id: string
@@ -12,6 +13,7 @@ interface BlockState {
   x: number
   y: number
   color: string
+  animate?: boolean
 }
 
 const TRAY_Y = 280
@@ -19,6 +21,30 @@ const ZONE_X = 180
 const ZONE_Y = 80
 const ZONE_W = 160
 const ZONE_H = 120
+const BLOCK_HEIGHT = 50
+const BASE_BLOCK_WIDTH = 200 // width for a whole (1/1); scales by numerator/denominator
+
+function blockWidth(numerator: number, denominator: number): number {
+  return Math.round(BASE_BLOCK_WIDTH * (numerator / denominator))
+}
+
+const DENOM_COLORS: Record<number, string> = {
+  2: '#6366f1',
+  3: '#10b981',
+  4: '#f59e0b',
+  5: '#ef4444',
+}
+
+let blockIdCounter = 0
+function nextBlockId(): string {
+  return `block-${++blockIdCounter}`
+}
+
+function blocksOverlap(a: BlockState, b: BlockState): boolean {
+  const ax = a.x, ay = a.y, aw = a.width, ah = a.height
+  const bx = b.x, by = b.y, bw = b.width, bh = b.height
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+}
 
 function isInZone(bx: number, by: number, bw: number, bh: number): boolean {
   const cx = bx + bw / 2
@@ -37,12 +63,27 @@ function sumBlocksInZone(blocks: BlockState[]): { n: number; d: number } {
   return { n, d: 4 }
 }
 
+function makeBlock(numerator: number, denominator: number, x: number, y: number): BlockState {
+  return {
+    id: nextBlockId(),
+    label: `${numerator}/${denominator}`,
+    numerator,
+    denominator,
+    width: blockWidth(numerator, denominator),
+    height: BLOCK_HEIGHT,
+    x,
+    y,
+    color: DENOM_COLORS[denominator] ?? '#6366f1',
+  }
+}
+
 function makeInitialBlocks(): BlockState[] {
+  blockIdCounter = 0
   return [
-    { id: 'half-1', label: '1/2', numerator: 1, denominator: 2, width: 100, height: 50, x: 20, y: TRAY_Y, color: '#6366f1' },
-    { id: 'quarter-1', label: '1/4', numerator: 1, denominator: 4, width: 50, height: 50, x: 140, y: TRAY_Y, color: '#f59e0b' },
-    { id: 'quarter-2', label: '1/4', numerator: 1, denominator: 4, width: 50, height: 50, x: 210, y: TRAY_Y, color: '#f59e0b' },
-    { id: 'quarter-3', label: '1/4', numerator: 1, denominator: 4, width: 50, height: 50, x: 280, y: TRAY_Y, color: '#f59e0b' },
+    makeBlock(1, 2, 20, TRAY_Y),
+    makeBlock(1, 4, 140, TRAY_Y),
+    makeBlock(1, 4, 210, TRAY_Y),
+    makeBlock(1, 4, 280, TRAY_Y),
   ]
 }
 
@@ -80,7 +121,94 @@ function LessonApp() {
   }, [svgPoint])
 
   const onPointerUp = useCallback(() => {
+    if (!dragRef.current) return
+    const draggedId = dragRef.current.id
     dragRef.current = null
+
+    // Check for combine: does the dropped block overlap a same-denominator block?
+    setBlocks(prev => {
+      const dragged = prev.find(b => b.id === draggedId)
+      if (!dragged) return prev
+
+      const target = prev.find(b =>
+        b.id !== draggedId &&
+        b.denominator === dragged.denominator &&
+        blocksOverlap(dragged, b) &&
+        canCombine(
+          { n: dragged.numerator, d: dragged.denominator as Denominator },
+          { n: b.numerator, d: b.denominator as Denominator },
+        )
+      )
+      if (!target) return prev
+
+      // Animate both blocks to the midpoint
+      const midX = (dragged.x + target.x) / 2
+      const midY = (dragged.y + target.y) / 2
+      return prev.map(b => {
+        if (b.id === dragged.id || b.id === target.id) {
+          return { ...b, x: midX, y: midY, animate: true }
+        }
+        return b
+      })
+    })
+
+    // After animation, replace the two blocks with one combined block
+    setTimeout(() => {
+      setBlocks(prev => {
+        const animating = prev.filter(b => b.animate)
+        if (animating.length !== 2) return prev
+        const [a, b] = animating
+        const newNum = a.numerator + b.numerator
+        const newDenom = a.denominator
+        const combined = makeBlock(newNum, newDenom, a.x, a.y)
+        return [...prev.filter(bl => !bl.animate), combined]
+      })
+    }, 200)
+  }, [])
+
+  const onDoubleClick = useCallback((block: BlockState) => {
+    const frac: Fraction = { n: block.numerator, d: block.denominator as Denominator }
+    const options = validSplitOptions(frac)
+    if (options.length === 0) return
+
+    // Split into the smallest valid number of parts
+    const parts = options[0]
+    const pieces = splitFraction(frac, parts)
+    if (!pieces) return
+
+    // Create new blocks at the same position as the original (stacked)
+    const newBlocks = pieces.map((p) =>
+      makeBlock(p.n, p.d, block.x, block.y)
+    )
+
+    // Replace original with new blocks (initially stacked, with animate flag)
+    setBlocks(prev => [
+      ...prev.filter(b => b.id !== block.id),
+      ...newBlocks.map(b => ({ ...b, animate: false })),
+    ])
+
+    // After a frame, spread them apart with animation
+    requestAnimationFrame(() => {
+      setBlocks(prev => {
+        const ids = new Set(newBlocks.map(b => b.id))
+        const spreading = prev.filter(b => ids.has(b.id))
+        if (spreading.length === 0) return prev
+
+        const spacing = 8
+        let currentX = block.x
+        return prev.map(b => {
+          if (!ids.has(b.id)) return b
+          const updated = { ...b, x: currentX, animate: true }
+          currentX += b.width + spacing
+          return updated
+        })
+      })
+
+      // Clear animate flag after transition completes
+      setTimeout(() => {
+        setBlocks(prev => prev.map(b => b.animate ? { ...b, animate: false } : b))
+      }, 200)
+    })
   }, [])
 
   const hasBlocksInZone = blocks.some(b => isInZone(b.x, b.y, b.width, b.height))
@@ -190,10 +318,15 @@ function LessonApp() {
 
           {/* Draggable blocks */}
           {blocks.map(block => (
-            <g key={block.id}>
+            <g
+              key={block.id}
+              transform={`translate(${block.x}, ${block.y})`}
+              className={block.animate ? 'block-animate' : undefined}
+              onDoubleClick={() => onDoubleClick(block)}
+            >
               <rect
-                x={block.x}
-                y={block.y}
+                x={0}
+                y={0}
                 width={block.width}
                 height={block.height}
                 fill={block.color}
@@ -205,8 +338,8 @@ function LessonApp() {
                 onPointerUp={onPointerUp}
               />
               <text
-                x={block.x + block.width / 2}
-                y={block.y + block.height / 2 + 5}
+                x={block.width / 2}
+                y={block.height / 2 + 5}
                 textAnchor="middle"
                 fontSize={16}
                 fontWeight="bold"

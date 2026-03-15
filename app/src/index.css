@@ -140,3 +140,8 @@ html, body {
     @apply font-sans;
   }
 }
+
+/* Block merge/split animations */
+.block-animate {
+  transition: transform 200ms ease-out;
+}
