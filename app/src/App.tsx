@@ -19,10 +19,6 @@ interface BlockState {
 }
 
 const TRAY_Y = 280
-const REF_BAR_X = 150
-const REF_BAR_Y = 20
-const REF_BAR_W = 200 // same as BASE_BLOCK_WIDTH so fractions visually align
-const REF_BAR_H = 30
 const ZONE_X = 180
 const ZONE_Y = 80
 const ZONE_W = 160
@@ -544,28 +540,6 @@ function LessonApp() {
             </filter>
           </defs>
 
-          {/* Reference bar — "1 whole" */}
-          <rect
-            x={REF_BAR_X}
-            y={REF_BAR_Y}
-            width={REF_BAR_W}
-            height={REF_BAR_H}
-            fill="#e5e7eb"
-            stroke="#94a3b8"
-            strokeWidth={1}
-            rx={4}
-          />
-          <text
-            x={REF_BAR_X + REF_BAR_W / 2}
-            y={REF_BAR_Y + REF_BAR_H / 2 + 5}
-            textAnchor="middle"
-            fontSize={14}
-            fontWeight="600"
-            fill="#64748b"
-            pointerEvents="none"
-          >
-            1 whole
-          </text>
 
           {isDualZone ? (
             <>

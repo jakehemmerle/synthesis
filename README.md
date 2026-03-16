@@ -1,6 +1,6 @@
 # Synthesis — Fraction Explorer
 
-An interactive AI-powered math tutor that teaches fraction equivalence through conversational guidance and drag-and-drop manipulatives. Built as a 1-week prototype inspired by the Synthesis Tutor model.
+An interactive AI-powered math tutor that teaches fraction equivalence through conversational guidance and drag-and-drop manipulatives. Built as a 1-week prototype inspired by the Synthesis Tutor model. Read @requirements.md for the FULL requirements, as well as the beads/issues with `bd`
 
 **Live:** https://synthesis-tutor-jh.web.app
 
